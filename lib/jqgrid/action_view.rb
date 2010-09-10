@@ -19,6 +19,7 @@ module JqGrid
         block.call(self)
       
         id = opts.delete(:id).to_sym
+        filterToolbar = opts.delete(:filterToolbar) unless opts[:filterToolbar].blank?
       
         opts[:with] = {} unless opts[:with]
         opts[:with].merge!({:columns => @column_names.join(',')})
@@ -91,6 +92,14 @@ module JqGrid
             .navGrid('##{id}_pager',
               {edit:false, add:false, del:false},{},{},{},
               {width:582, height: 50, sopt: ['bw','eq','ne','cn']});
+        tbl
+        
+        if filterToolbar
+          ret = ret + <<-tbl
+                      jQuery("##{id}_table").jqGrid().filterToolbar({searchOnEnter: false});
+                      tbl
+        end
+        ret = ret + <<-tbl
         });
         
         </script>
@@ -118,12 +127,26 @@ module JqGrid
       
         options[:title] = options[:name].capitalize \
           if options[:name] and not options[:title]
+            
+        if !options[:editoptions].blank?
+          # Generate jqGrid expected value string, clear out options, store string
+          values = "#{get_sub_options(options[:editoptions])}"
+          options[:editoptions].clear
+          options[:editoptions][:value] = values
+        end            
       
         @column_headers << options.delete(:title)
         @column_names << options[:name]
         @column_data << options
       end
-    
+private      
+      def get_sub_options(editoptions)
+        options = ""
+        editoptions.each do |v|
+          options << "#{v[0]}:#{v[1]};"
+        end
+        options.chop! << ""
+      end    
     end
   
   end
