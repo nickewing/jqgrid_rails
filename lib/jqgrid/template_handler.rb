@@ -38,6 +38,7 @@ class JQGRID < ::ActionView::TemplateHandler
     def initialize(controller)
       @controller = controller
       @opts = @controller._jqgrid_options
+      @find_opts = {}
     end
     
     # template method
@@ -78,40 +79,59 @@ class JQGRID < ::ActionView::TemplateHandler
       
       def fetch_paginated_items(columns)
         # build conditions for find
-        model = @opts[:model]
-        rows_shown = params[:rows].to_i
+        @source = @opts[:source]
 
-        cond = build_condition_clause(
-          params[:_search] == 'true',
-          params[:searchField],
-          params[:searchOper],
-          params[:searchString]
-        )
+        build_search_conditions
         
-        find_opts = {
-          :include    => @opts[:include],
-          :conditions => cond
-        }
+        @source = @source.scoped(:joins => @find_opts[:joins])
 
         # calculate total pages of items
-        total_rows = model.count(find_opts)
+        rows_shown = params[:rows].to_i
+        total_rows = @source.count
         total_pages = calc_total_pages(total_rows, rows_shown)
         
         order = build_order_clause(params[:sort_column], params[:sort_order])
 
         # determine current page
         page = calc_current_page(total_pages)
-        
-        find_opts.merge!({
+
+        items = @source.all(
           :limit  => rows_shown,
           :offset => (page - 1) * rows_shown,
           :order  => order
-        })
-        
-        # fetch paginated items
-        items = model.find(:all, find_opts)
+        )
         
         [total_rows, total_pages, page, items]
+      end
+
+      def build_search_conditions
+        field  = params[:searchField]
+        op     = params[:searchOper]
+        str    = params[:searchString]
+
+        return unless params[:_search] and field and
+          str and col = @columns[field.to_sym]
+
+        field = col[0][:search_by_str] || col[0][:field_str]
+
+        expr = "ILIKE ?"
+
+        case op
+        when 'eq' # equal to
+          # do nothing
+        when 'bw' # begins with
+          str  = "#{str}%"    
+        when 'ne' # not equal
+          expr = "NOT #{expr}"
+        when 'ew' # ends with
+          str = "%#{str}"
+        when 'cn' # contains
+          str = "%#{str}%"
+        end
+
+        @source = @source.scoped(
+          :conditions => ["#{field} #{expr}", str]
+        )
       end
       
       def calc_total_pages(total_rows, rows_shown)
@@ -126,49 +146,6 @@ class JQGRID < ::ActionView::TemplateHandler
           params[:page].to_i
         
         [page, 1].max
-      end
-      
-      def opt_condition_str
-        conditions = ''
-
-        if @opts[:conditions]
-          # build conditions from controller provided options
-          @opts[:conditions].each do |cond|
-            conditions += ' AND ' unless conditions == ''
-            conditions += "(#{cond})"
-          end
-        end
-        conditions
-      end
-      
-      def build_condition_clause(search, search_field, search_op, search_string)
-        conditions = opt_condition_str
-        
-        # limit results by search if one was given
-        if search and search_field and search_string \
-          and col = @columns[search_field.to_sym]
-          
-          search_cond = map_search_op(search_op)
-          search_cond.gsub!(%r/\?/, search_string.gsub("'", '"'))
-          search_field = col[0][:search_by_str] || col[0][:field_str]
-          
-          cond = "#{search_field} #{search_cond}"
-          cond += " AND #{conditions}" unless conditions.blank?
-          cond
-        else
-          conditions
-        end
-      end
-      
-      # map short operator to SQL
-      def map_search_op(op)
-        case op
-          when 'bw': "ILIKE '?%'" # begins with
-          when 'eq': "ILIKE '?'" # equal to
-          when 'ne': "NOT ILIKE '?'" # not equal
-          when 'ew': "ILIKE '%?'" # ends with
-          when 'cn': "ILIKE '%?%'" # contains
-        end
       end
       
       def build_order_clause(field, order)
@@ -224,11 +201,11 @@ class JQGRID < ::ActionView::TemplateHandler
         '[Error]'
       end
       
-      # find table from model association
-      def ref_table(method, model, col) 
+      # find table from source association
+      def ref_table(method, source, col) 
         (method ?
-          model.reflect_on_association(method).klass :
-          model).table_name
+          source.reflect_on_association(method).klass :
+          source).table_name
       end
       
       def path_sql_field(item, path)
@@ -249,7 +226,7 @@ class JQGRID < ::ActionView::TemplateHandler
         fields = [:field, :order_by, :search_by]
         opts.each_pair do |k, v|
           key = (k.to_s + '_str').to_sym
-          opts[key] = path_sql_field(@opts[:model], v) if fields.include? k
+          opts[key] = path_sql_field(@opts[:source], v) if fields.include? k
         end
       end
       
@@ -264,9 +241,9 @@ class JQGRID < ::ActionView::TemplateHandler
       end
       
       def append_inc(path)
-        @opts[:include] ||= []
+        @find_opts[:joins] ||= []
         inc = path.reverse.reduce([]) {|l, r| {r => l}}
-        @opts[:include] << inc unless @opts[:include].include? inc
+        @find_opts[:joins] << inc unless @find_opts[:joins].include? inc
       end
   end
   
