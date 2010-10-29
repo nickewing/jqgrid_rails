@@ -19,7 +19,9 @@ module JqGrid
         block.call(self)
       
         id = opts.delete(:id).to_sym
-        filterToolbar = opts.delete(:filterToolbar) unless opts[:filterToolbar].blank?
+
+        filter_toolbar = opts.delete(:filterToolbar)
+        filter_toolbar ||= opts.delete(:filter_toolbar)
       
         opts[:with] = {} unless opts[:with]
         opts[:with].merge!({:columns => @column_names.join(',')})
@@ -94,7 +96,7 @@ module JqGrid
               {width:582, height: 50, sopt: ['bw','eq','ne','cn']});
         tbl
         
-        if filterToolbar
+        if filter_toolbar
           ret = ret + <<-tbl
                       jQuery("##{id}_table").jqGrid().filterToolbar({searchOnEnter: false});
                       tbl
@@ -118,7 +120,9 @@ module JqGrid
         # map our setting names to their stupid ones
       
         option_map = {
-          :searchable => :search
+          :searchable  => :search,
+          :search_type => :stype,
+          :values      => :editoptions
         }
       
         options = map_keys(options, option_map)
@@ -139,7 +143,8 @@ module JqGrid
         @column_names << options[:name]
         @column_data << options
       end
-private      
+
+    private      
       def get_sub_options(editoptions)
         options = ""
         editoptions.each do |v|

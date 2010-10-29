@@ -22,15 +22,9 @@ class JQGRID < ::ActionView::TemplateHandler
   end
   
   class GridData
-    
     # include standard view helpers
     include ApplicationHelper
-    include ActionView::Helpers::TranslationHelper
-    include ActionView::Helpers::AssetTagHelper
-    include ActionView::Helpers::TextHelper
-    include ActionView::Helpers::TagHelper
-    include ActionView::Helpers::UrlHelper
-    include ActionView::Helpers::SanitizeHelper
+    include ActionView::Helpers
     
     attr_reader :controller # used for delegate
     delegate :url_for, :to => :controller # fix for url_for problem with link_to
@@ -109,29 +103,47 @@ class JQGRID < ::ActionView::TemplateHandler
         op     = params[:searchOper]
         str    = params[:searchString]
 
-        return unless params[:_search] and field and
-          str and col = @columns[field.to_sym]
+        return unless params[:_search]
+        
+        if field and op and str and col = @columns[field.to_sym]
+          field = col[0][:search_by_str] || col[0][:field_str]
 
-        field = col[0][:search_by_str] || col[0][:field_str]
+          expr = "ILIKE ?"
 
-        expr = "ILIKE ?"
+          case op
+          when 'eq' # equal to
+            # do nothing
+          when 'bw' # begins with
+            str  = "#{str}%"    
+          when 'ne' # not equal
+            expr = "NOT #{expr}"
+          when 'ew' # ends with
+            str = "%#{str}"
+          when 'cn' # contains
+            str = "%#{str}%"
+          end
 
-        case op
-        when 'eq' # equal to
-          # do nothing
-        when 'bw' # begins with
-          str  = "#{str}%"    
-        when 'ne' # not equal
-          expr = "NOT #{expr}"
-        when 'ew' # ends with
-          str = "%#{str}"
-        when 'cn' # contains
-          str = "%#{str}%"
+          query = "#{field} #{expr}"
+          vals  = [str]
+        else
+          query = []
+          vals  = []
+
+          @columns.each_pair do |key, col|
+            if str = params[key.to_s]
+              field = col[0][:search_by_str] || col[0][:field_str]
+
+              query << "#{field} ILIKE ?"
+              vals  << "%#{str}%"
+            end
+          end
+
+          query = query.join(' AND ')
         end
 
-        @source = @source.scoped(
-          :conditions => ["#{field} #{expr}", str]
-        )
+        vals.unshift(query)
+
+        @source = @source.scoped(:conditions => vals)
       end
       
       def calc_total_pages(total_rows, rows_shown)
